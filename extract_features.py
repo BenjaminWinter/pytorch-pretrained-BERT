@@ -24,8 +24,9 @@ import collections
 import logging
 import json
 import re
-
+from tqdm import tqdm
 import torch
+import pickle
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
 
@@ -61,7 +62,7 @@ def convert_examples_to_features(examples, seq_length, tokenizer):
     """Loads a data file into a list of `InputBatch`s."""
 
     features = []
-    for (ex_index, example) in enumerate(examples):
+    for (ex_index, example) in enumerate(tqdm(examples)):
         tokens_a = tokenizer.tokenize(example.text_a)
 
         tokens_b = None
@@ -169,7 +170,7 @@ def read_examples(input_file):
     """Read a list of `InputExample`s from an input file."""
     examples = []
     unique_id = 0
-    with open(input_file, "r") as reader:
+    with open(input_file, "r", encoding="utf-8") as reader:
         while True:
             line = tokenization.convert_to_unicode(reader.readline())
             if not line:
@@ -216,7 +217,7 @@ def main():
                         type=int,
                         default=-1,
                         help = "local_rank for distributed training on gpus")
-
+    parser.add_argument("--no_cuda", default=False, type=bool, help="Dont use CUDA")
     args = parser.parse_args()
 
     if args.local_rank == -1 or args.no_cuda:
@@ -240,7 +241,8 @@ def main():
 
     features = convert_examples_to_features(
         examples=examples, seq_length=args.max_seq_length, tokenizer=tokenizer)
-
+    with open("features.pickle", "wb") as f:
+        pickle.dump(features, f)
     unique_id_to_feature = {}
     for feature in features:
         unique_id_to_feature[feature.unique_id] = feature
@@ -269,7 +271,7 @@ def main():
 
     model.eval()
     with open(args.output_file, "w", encoding='utf-8') as writer:
-        for input_ids, input_mask, example_indices in eval_dataloader:
+        for input_ids, input_mask, example_indices in tqdm(eval_dataloader):
             input_ids = input_ids.to(device)
             input_mask = input_mask.to(device)
 

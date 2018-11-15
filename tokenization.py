@@ -22,7 +22,6 @@ import collections
 import unicodedata
 import six
 
-
 def convert_to_unicode(text):
     """Converts `text` to Unicode (if it's not already), assuming utf-8 input."""
     if six.PY3:
@@ -70,7 +69,7 @@ def load_vocab(vocab_file):
     """Loads a vocabulary file into a dictionary."""
     vocab = collections.OrderedDict()
     index = 0
-    with open(vocab_file, "r") as reader:
+    with open(vocab_file, "r", encoding="utf-8") as reader:
         while True:
             token = convert_to_unicode(reader.readline())
             if not token:
