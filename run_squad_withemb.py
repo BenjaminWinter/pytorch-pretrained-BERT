@@ -143,29 +143,30 @@ def read_squad_example(entry, is_training):
             start_position = None
             end_position = None
             orig_answer_text = None
-            if is_training:
-                if len(qa["answers"]) != 1:
-                    raise ValueError(
-                        "For training, each question should have exactly 1 answer.")
-                answer = qa["answers"][0]
-                orig_answer_text = answer["text"]
-                answer_offset = answer["answer_start"]
-                answer_length = len(orig_answer_text)
-                start_position = char_to_word_offset[answer_offset]
-                end_position = char_to_word_offset[answer_offset + answer_length - 1]
-                # Only add answers where the text can be exactly recovered from the
-                # document. If this CAN'T happen it's likely due to weird Unicode
-                # stuff so we will just skip the example.
-                #
-                # Note that this means for training mode, every example is NOT
-                # guaranteed to be preserved.
-                actual_text = " ".join(doc_tokens[start_position:(end_position + 1)])
-                cleaned_answer_text = " ".join(
-                    tokenization.whitespace_tokenize(orig_answer_text))
-                if actual_text.find(cleaned_answer_text) == -1:
-                    logger.warning("Could not find answer: '%s' vs. '%s'",
-                                       actual_text, cleaned_answer_text)
-                    continue
+
+            #only strictly necessary for training. But enabled for evaluation in order to calc dev loss
+            if len(qa["answers"]) != 1:
+                raise ValueError(
+                    "For training, each question should have exactly 1 answer.")
+            answer = qa["answers"][0]
+            orig_answer_text = answer["text"]
+            answer_offset = answer["answer_start"]
+            answer_length = len(orig_answer_text)
+            start_position = char_to_word_offset[answer_offset]
+            end_position = char_to_word_offset[answer_offset + answer_length - 1]
+            # Only add answers where the text can be exactly recovered from the
+            # document. If this CAN'T happen it's likely due to weird Unicode
+            # stuff so we will just skip the example.
+            #
+            # Note that this means for training mode, every example is NOT
+            # guaranteed to be preserved.
+            actual_text = " ".join(doc_tokens[start_position:(end_position + 1)])
+            cleaned_answer_text = " ".join(
+                tokenization.whitespace_tokenize(orig_answer_text))
+            if actual_text.find(cleaned_answer_text) == -1:
+                logger.warning("Could not find answer: '%s' vs. '%s'",
+                                   actual_text, cleaned_answer_text)
+                continue
 
             example = SquadExample(
                 qas_id=qas_id,
@@ -189,21 +190,21 @@ def read_squad_examples(input_file, is_training):
         return False
 
     examples = []
-    examples = Parallel(n_jobs=torch.get_num_threads(), verbose=10)(delayed(read_squad_example)(entry, is_training) for entry in input_data)
+    examples = Parallel(n_jobs=mp.cpu_count(), verbose=10)(delayed(read_squad_example)(entry, is_training) for entry in input_data)
     examples = [item for sublist in examples for item in sublist]
 
     return examples
 
 
 def convert_example_to_features(example, tokenizer, max_seq_length,
-                                 doc_stride, max_query_length, is_training, example_index):
+                                 doc_stride, max_query_length, is_training, example_index, vocab_file):
 
     tokenizer = tokenization.FullTokenizer(
-            vocab_file="/app/pytorch-pretrained-BERT/uncased/vocab.txt", do_lower_case="True")
+            vocab_file=vocab_file, do_lower_case="True")
 
     query_tokens = tokenizer.tokenize(example.question_text)
 
-    
+
     if len(query_tokens) > max_query_length:
         query_tokens = query_tokens[0:max_query_length]
 
@@ -228,15 +229,16 @@ def convert_example_to_features(example, tokenizer, max_seq_length,
 
     tok_start_position = None
     tok_end_position = None
-    if is_training:
-        tok_start_position = orig_to_tok_index[example.start_position]
-        if example.end_position < len(example.doc_tokens) - 1:
-            tok_end_position = orig_to_tok_index[example.end_position + 1] - 1
-        else:
-            tok_end_position = len(all_doc_tokens) - 1
-        (tok_start_position, tok_end_position) = _improve_answer_span(
-            all_doc_tokens, tok_start_position, tok_end_position, tokenizer,
-            example.orig_answer_text)
+
+    #only strictly necessary for training. But enabled for evaluation in order to calc dev loss
+    tok_start_position = orig_to_tok_index[example.start_position]
+    if example.end_position < len(example.doc_tokens) - 1:
+        tok_end_position = orig_to_tok_index[example.end_position + 1] - 1
+    else:
+        tok_end_position = len(all_doc_tokens) - 1
+    (tok_start_position, tok_end_position) = _improve_answer_span(
+        all_doc_tokens, tok_start_position, tok_end_position, tokenizer,
+        example.orig_answer_text)
 
     # The -3 accounts for [CLS], [SEP] and [SEP]
     max_tokens_for_doc = max_seq_length - len(query_tokens) - 3
@@ -301,19 +303,25 @@ def convert_example_to_features(example, tokenizer, max_seq_length,
 
         start_position = None
         end_position = None
+
+        #only strictly necessary for training. But enabled for evaluation in order to calc dev loss
+
+
+        doc_start = doc_span.start
+        doc_end = doc_span.start + doc_span.length - 1
+
         if is_training:
             # For training, if our document chunk does not contain an annotation
             # we throw it out, since there is nothing to predict.
-            doc_start = doc_span.start
-            doc_end = doc_span.start + doc_span.length - 1
             if (example.start_position < doc_start or
                     example.end_position < doc_start or
                     example.start_position > doc_end or example.end_position > doc_end):
                 continue
 
-            doc_offset = len(query_tokens) + 2
-            start_position = tok_start_position - doc_start + doc_offset
-            end_position = tok_end_position - doc_start + doc_offset
+
+        doc_offset = len(query_tokens) + 2
+        start_position = tok_start_position - doc_start + doc_offset
+        end_position = tok_end_position - doc_start + doc_offset
 
         return InputFeatures(
                 unique_id=example.qas_id,
@@ -874,10 +882,6 @@ def main():
     if args.do_train:
         train_examples = read_squad_examples(
             input_file=args.train_file, is_training=True)
-        print(len(train_examples))
-        print(args.train_batch_size)
-        print(args.gradient_accumulation_steps)
-        print(args.num_train_epochs)
         num_train_steps = int(
             len(train_examples) / args.train_batch_size / args.gradient_accumulation_steps * args.num_train_epochs)
 
@@ -927,7 +931,8 @@ def main():
             max_seq_length=args.max_seq_length,
             doc_stride=args.doc_stride,
             max_query_length=args.max_query_length,
-            is_training=True)
+            is_training=True,
+            vocab_file=args.vocab_file)
             #joblib.dump(train_features,'train_features')
         logger.info("***** Running training *****")
         logger.info("  Num orig examples = %d", len(train_examples))
@@ -958,15 +963,18 @@ def main():
                 max_seq_length=args.max_seq_length,
                 doc_stride=args.doc_stride,
                 max_query_length=args.max_query_length,
-                is_training=False)
+                is_training=False,
+                vocab_file=args.vocab_file)
 
             all_eval_input_ids = torch.tensor([f.input_ids for f in eval_features], dtype=torch.long)
             all_eval_input_mask = torch.tensor([f.input_mask for f in eval_features], dtype=torch.long)
             all_eval_segment_ids = torch.tensor([f.segment_ids for f in eval_features], dtype=torch.long)
             all_eval_example_index = torch.arange(all_eval_input_ids.size(0), dtype=torch.long)
             all_eval_example_ids = torch.tensor([f.example_index for f in eval_features], dtype=torch.int)
+            all_eval_start_positions = torch.tensor([f.start_position for f in eval_features], dtype=torch.long)
+            all_eval_end_positions = torch.tensor([f.end_position for f in eval_features], dtype=torch.long)
 
-            eval_data = TensorDataset(all_eval_input_ids, all_eval_input_mask, all_eval_segment_ids, all_eval_example_index, all_eval_example_ids)
+            eval_data = TensorDataset(all_eval_input_ids, all_eval_input_mask, all_eval_segment_ids, all_eval_example_index, all_eval_example_ids, all_eval_start_positions, all_eval_end_positions )
         if args.local_rank == -1:
             eval_sampler = SequentialSampler(eval_data)
         else:
@@ -1006,10 +1014,10 @@ def main():
         for t_epoch in trange(int(args.num_train_epochs), desc="Epoch"):
             for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
                 global_step += 1
+
                 if n_gpu == 1:
                     batch = tuple(t.to(device) for t in batch) # multi-gpu does scattering it-self
                 input_ids, input_mask, segment_ids, start_positions, end_positions, example_ids = batch
-
 
 
                 #
@@ -1033,8 +1041,7 @@ def main():
                 embedding = torch.cat([cls,qs,sep,contexts, sep], dim=1).cuda()
 
 
-                
-                loss = model(input_ids, segment_ids, input_mask, embedding, start_positions, end_positions)
+                loss, _, _ = model(input_ids, segment_ids, input_mask, embedding, start_positions, end_positions)
                 if n_gpu > 1:
                     loss = loss.mean() # mean() to average on multi-gpu.
                 if args.fp16 and args.loss_scale != 1.0:
@@ -1062,7 +1069,8 @@ def main():
                     else:
                         optimizer.step()
                     model.zero_grad()
-                    global_step += 1
+
+
 
                 if args.do_predict and global_step % args.save_checkpoints_steps == 0:
                     logger.info("***** Running predictions *****")
@@ -1072,41 +1080,54 @@ def main():
 
                     model.eval()
                     all_results = []
+                    total_eloss=0.
                     logger.info("Start evaluating")
-                    for input_ids, input_mask, segment_ids, example_indices, example_ids in tqdm(eval_dataloader, desc="Evaluating"):
-                        input_ids = input_ids.to(device)
-                        input_mask = input_mask.to(device)
-                        segment_ids = segment_ids.to(device)
+                    eval_step=0.
+                    for batch in tqdm(eval_dataloader, desc="Evaluating"):
+                        eval_step += 1
+                        if n_gpu == 1:
+                            batch = tuple(t.to(device) for t in batch) # multi-gpu does scattering it-self
+
+                        input_ids, input_mask, segment_ids, example_indices, example_ids, start_positions, end_positions = batch
+
 
                         #
                         # Still terrible
                         #
                         cls = torch.zeros(input_ids.size(0),1, 1024)
-                        sep = torch.ones(input_ids.size(0),1, 1024)
+                        sep = torch.zeros(input_ids.size(0),1, 1024)
                         example_ids = example_ids.cpu().numpy()
                         qs = np.array([np.pad(q_emb[ef_dict[example_id].unique_id], ((0, 200), (0,0)), 'constant', constant_values=(0) )[:200,:] for example_id in example_ids])
                         qs = torch.Tensor(qs)
-                        contexts = []
-                        context_len
-                        for example_id in example_ids:
-                            paragraphs = []
-                            for p in ef_dict[example_id].paragraphs:
-                                paragraphs.append(p_emb[p])
-                            paragraphs = np.concatenate(paragraphs)
-                            contexts.append(np.pad(paragraphs, ((0,context_len),(0,0)), 'constant', constant_values=(0) )[:context_len,:])
-                        contexts = np.array(contexts) 
-                        contexts = torch.Tensor(contexts)
-                        #a1 = torch.cat([cls,qs], dim=1)
-                        #a2 = torch.cat([a1,sep], dim=1)
-                        #a3 = torch.cat([a2,contexts], dim=1)
-                        #embedding = torch.cat([a3,sep], dim=1).cuda()
+                        if not args.supp_only:
+                            contexts = []
+                            for example_id in example_ids:
+                                paragraphs = []
+                                for p in ef_dict[example_id].paragraphs:
+                                    paragraphs.append(p_emb[p])
+                                paragraphs = np.concatenate(paragraphs)
+                                contexts.append(np.pad(paragraphs, ((0,context_len),(0,0)), 'constant', constant_values=(0) )[:context_len,:])
+                            contexts = np.array(contexts)
+                            contexts = torch.Tensor(contexts)
+                        else:
+                            contexts = np.array([np.pad(sp_emb[ef_dict[example_id].unique_id], ((0, context_len), (0,0)), 'constant', constant_values=(0) )[:context_len,:] for example_id in example_ids])
+                            contexts = torch.Tensor(contexts)
                         embedding = torch.cat([cls,qs,sep,contexts, sep], dim=1).cuda()
 
-                           
-                        with torch.no_grad():
-                            batch_start_logits, batch_end_logits = model(input_ids, segment_ids, input_mask, embedding)
 
-                            
+                        with torch.no_grad():
+                            dev_loss, batch_start_logits, batch_end_logits = model(input_ids, segment_ids, input_mask, embedding, start_positions, end_positions)
+                            if n_gpu > 1:
+                                dev_loss = dev_loss.mean() # mean() to average on multi-gpu.
+                            if args.fp16 and args.loss_scale != 1.0:
+                                # rescale loss for fp16 training
+                                # see https://docs.nvidia.com/deeplearning/sdk/mixed-precision-training/index.html
+                                dev_loss = dev_loss * args.loss_scale
+                            if args.gradient_accumulation_steps > 1:
+                                dev_loss = dev_loss / args.gradient_accumulation_steps
+
+                            total_eloss *= dev_loss
+
                         for i, example_index in enumerate(example_indices):
                             start_logits = batch_start_logits[i].detach().cpu().tolist()
                             end_logits = batch_end_logits[i].detach().cpu().tolist()
@@ -1122,8 +1143,9 @@ def main():
                                       args.do_lower_case, output_prediction_file,
                                       output_nbest_file, args.verbose_logging)
                     torch.save(model.state_dict(), os.path.join(args.output_dir, 'model' + str(global_step) + '.pt'))
+                    writer.add_scalar('data/train/dev_loss', total_eloss / eval_step, global_step)
                     model.train()
-                    
+
 
 
 
