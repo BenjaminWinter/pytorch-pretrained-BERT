@@ -43,9 +43,9 @@ from optimization import BERTAdam
 import multiprocessing as mp
 
 torch.set_num_threads(mp.cpu_count())
-logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
-                    datefmt = '%m/%d/%Y %H:%M:%S',
-                    level = logging.INFO)
+logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
+                    datefmt='%m/%d/%Y %H:%M:%S',
+                    level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -112,12 +112,14 @@ class InputFeatures(object):
         self.segment_ids = segment_ids
         self.start_position = start_position
         self.end_position = end_position
-        
+
+
 def is_whitespace(c):
     if c == " " or c == "\t" or c == "\r" or c == "\n" or ord(c) == 0x202F:
         return True
     return False
-    
+
+
 def read_squad_example(entry, is_training):
     examples = []
     for paragraph in entry["paragraphs"]:
@@ -126,7 +128,7 @@ def read_squad_example(entry, is_training):
         char_to_word_offset = []
         titles = re.findall('<t> .*? </t>', paragraph_text)
         titles = [t[4:-5] for t in titles]
-        
+
         prev_is_whitespace = True
         for c in paragraph_text:
             if is_whitespace(c):
@@ -146,7 +148,7 @@ def read_squad_example(entry, is_training):
             end_position = None
             orig_answer_text = None
 
-            #only strictly necessary for training. But enabled for evaluation in order to calc dev loss
+            # only strictly necessary for training. But enabled for evaluation in order to calc dev loss
             if len(qa["answers"]) != 1:
                 raise ValueError(
                     "For training, each question should have exactly 1 answer.")
@@ -167,7 +169,7 @@ def read_squad_example(entry, is_training):
                 tokenization.whitespace_tokenize(orig_answer_text))
             if actual_text.find(cleaned_answer_text) == -1:
                 logger.warning("Could not find answer: '%s' vs. '%s'",
-                                   actual_text, cleaned_answer_text)
+                               actual_text, cleaned_answer_text)
                 continue
 
             example = SquadExample(
@@ -180,7 +182,8 @@ def read_squad_example(entry, is_training):
                 end_position=end_position)
             examples.append(example)
     return examples
-                    
+
+
 def read_squad_examples(input_file, is_training):
     """Read a SQuAD json file into a list of SquadExample."""
     with open(input_file, "r") as reader:
@@ -192,20 +195,19 @@ def read_squad_examples(input_file, is_training):
         return False
 
     examples = []
-    examples = Parallel(n_jobs=mp.cpu_count(), verbose=10)(delayed(read_squad_example)(entry, is_training) for entry in input_data)
+    examples = Parallel(n_jobs=mp.cpu_count(), verbose=10)(
+        delayed(read_squad_example)(entry, is_training) for entry in input_data)
     examples = [item for sublist in examples for item in sublist]
 
     return examples
 
 
 def convert_example_to_features(example, tokenizer, max_seq_length,
-                                 doc_stride, max_query_length, is_training, example_index, vocab_file):
-
+                                doc_stride, max_query_length, is_training, example_index, vocab_file):
     tokenizer = tokenization.FullTokenizer(
-            vocab_file=vocab_file, do_lower_case="True")
+        vocab_file=vocab_file, do_lower_case="True")
 
     query_tokens = tokenizer.tokenize(example.question_text)
-
 
     if len(query_tokens) > max_query_length:
         query_tokens = query_tokens[0:max_query_length]
@@ -215,14 +217,14 @@ def convert_example_to_features(example, tokenizer, max_seq_length,
     all_doc_tokens = []
     para_len = 0
     max_para = 512
-    clen= 0
+    clen = 0
     for (i, token) in enumerate(example.doc_tokens):
         if token == '<t>':
             para_len = 1
         else:
             para_len += 1
-        #if para_len > max_para:
-            #continue
+        # if para_len > max_para:
+        # continue
         orig_to_tok_index.append(len(all_doc_tokens))
         sub_tokens = tokenizer.tokenize(token)
         for sub_token in sub_tokens:
@@ -232,7 +234,7 @@ def convert_example_to_features(example, tokenizer, max_seq_length,
     tok_start_position = None
     tok_end_position = None
 
-    #only strictly necessary for training. But enabled for evaluation in order to calc dev loss
+    # only strictly necessary for training. But enabled for evaluation in order to calc dev loss
     tok_start_position = orig_to_tok_index[example.start_position]
     if example.end_position < len(example.doc_tokens) - 1:
         tok_end_position = orig_to_tok_index[example.end_position + 1] - 1
@@ -306,8 +308,7 @@ def convert_example_to_features(example, tokenizer, max_seq_length,
         start_position = None
         end_position = None
 
-        #only strictly necessary for training. But enabled for evaluation in order to calc dev loss
-
+        # only strictly necessary for training. But enabled for evaluation in order to calc dev loss
 
         doc_start = doc_span.start
         doc_end = doc_span.start + doc_span.length - 1
@@ -320,30 +321,33 @@ def convert_example_to_features(example, tokenizer, max_seq_length,
                     example.start_position > doc_end or example.end_position > doc_end):
                 continue
 
-
         doc_offset = len(query_tokens) + 2
         start_position = tok_start_position - doc_start + doc_offset
         end_position = tok_end_position - doc_start + doc_offset
 
         return InputFeatures(
-                unique_id=example.qas_id,
-                example_index=example_index,
-                doc_span_index=doc_span_index,
-                paragraphs=example.paragraphs,
-                tokens=tokens,
-                token_to_orig_map=token_to_orig_map,
-                token_is_max_context=token_is_max_context,
-                input_ids=input_ids,
-                input_mask=input_mask,
-                segment_ids=segment_ids,
-                start_position=start_position,
-                end_position=end_position)
+            unique_id=example.qas_id,
+            example_index=example_index,
+            doc_span_index=doc_span_index,
+            paragraphs=example.paragraphs,
+            tokens=tokens,
+            token_to_orig_map=token_to_orig_map,
+            token_is_max_context=token_is_max_context,
+            input_ids=input_ids,
+            input_mask=input_mask,
+            segment_ids=segment_ids,
+            start_position=start_position,
+            end_position=end_position)
+
 
 def convert_examples_to_features(examples, tokenizer, max_seq_length,
-                                 doc_stride, max_query_length, is_training,vocab_file):
+                                 doc_stride, max_query_length, is_training, vocab_file):
     """Loads a data file into a list of `InputBatch`s."""
 
-    features = Parallel(n_jobs=mp.cpu_count(), verbose=10)(delayed(convert_example_to_features)(example, -1, max_seq_length, doc_stride, max_query_length, is_training, example_index,vocab_file) for example_index, example in enumerate(examples))
+    features = Parallel(n_jobs=mp.cpu_count(), verbose=10)(
+        delayed(convert_example_to_features)(example, -1, max_seq_length, doc_stride, max_query_length, is_training,
+                                             example_index, vocab_file) for example_index, example in
+        enumerate(examples))
 
     return features
 
@@ -420,7 +424,6 @@ def _check_is_max_context(doc_spans, cur_span_index, position):
             best_span_index = span_index
 
     return cur_span_index == best_span_index
-
 
 
 RawResult = collections.namedtuple("RawResult",
@@ -622,7 +625,7 @@ def get_final_text(pred_text, orig_text, do_lower_case, verbose_logging=False):
     if len(orig_ns_text) != len(tok_ns_text):
         if verbose_logging:
             logger.info("Length not equal after stripping spaces: '%s' vs '%s'",
-                            orig_ns_text, tok_ns_text)
+                        orig_ns_text, tok_ns_text)
         return orig_text
 
     # We then project the characters in `pred_text` back to `orig_text` using
@@ -691,6 +694,7 @@ def _compute_softmax(scores):
         probs.append(score / total_sum)
     return probs
 
+
 def copy_optimizer_params_to_model(named_params_model, named_params_optimizer):
     """ Utility function for optimize_on_cpu and 16-bits training.
         Copy the parameters optimized on CPU/RAM back to the model on GPU
@@ -700,6 +704,7 @@ def copy_optimizer_params_to_model(named_params_model, named_params_optimizer):
             logger.error("name_opti != name_model: {} {}".format(name_opti, name_model))
             raise ValueError
         param_model.data.copy_(param_opti.data)
+
 
 def set_optimizer_params_grad(named_params_optimizer, named_params_model, test_nan=False):
     """ Utility function for optimize_on_cpu and 16-bits training.
@@ -717,7 +722,214 @@ def set_optimizer_params_grad(named_params_optimizer, named_params_model, test_n
         param_opti.grad.data.copy_(param_model.grad.data)
     return is_nan
 
+
 def main():
+    args = parse_args()
+
+    bert_config = BertConfig.from_json_file(args.bert_config_file)
+
+    device, n_gpu = prepare_device(args)
+
+    if args.gradient_accumulation_steps < 1:
+        raise ValueError("Invalid gradient_accumulation_steps parameter: {}, should be >= 1".format(
+            args.gradient_accumulation_steps))
+
+    args.train_batch_size = int(args.train_batch_size / args.gradient_accumulation_steps)
+
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    if n_gpu > 0:
+        torch.cuda.manual_seed_all(args.seed)
+
+    if not args.do_train and not args.do_predict:
+        raise ValueError("At least one of `do_train` or `do_predict` must be True.")
+
+    if args.do_train:
+        if not args.train_file:
+            raise ValueError(
+                "If `do_train` is True, then `train_file` must be specified.")
+    if args.do_predict:
+        if not args.predict_file:
+            raise ValueError(
+                "If `do_predict` is True, then `predict_file` must be specified.")
+
+    if args.max_seq_length > bert_config.max_position_embeddings:
+        raise ValueError(
+            "Cannot use sequence length %d because the BERT model "
+            "was only trained up to sequence length %d" %
+            (args.max_seq_length, bert_config.max_position_embeddings))
+
+    if os.path.exists(args.output_dir) and os.listdir(args.output_dir):
+        raise ValueError("Output directory () already exists and is not empty.")
+
+    os.makedirs(args.output_dir, exist_ok=True)
+
+    tokenizer = tokenization.FullTokenizer(
+        vocab_file=args.vocab_file, do_lower_case=args.do_lower_case)
+
+    train_examples = None
+    num_train_steps = None
+    if args.do_train:
+        train_examples = read_squad_examples(
+            input_file=args.train_file, is_training=True)
+        num_train_steps = int(
+            len(train_examples) / args.train_batch_size / args.gradient_accumulation_steps * args.num_train_epochs)
+
+    # Prepare model
+    model = prepare_model(args, bert_config, device, n_gpu)
+
+    # Prepare optimizer
+    if args.fp16:
+        param_optimizer = [(n, param.clone().detach().to('cpu').float().requires_grad_()) \
+                           for n, param in model.named_parameters()]
+    elif args.optimize_on_cpu:
+        param_optimizer = [(n, param.clone().detach().to('cpu').requires_grad_()) \
+                           for n, param in model.named_parameters()]
+    else:
+        param_optimizer = list(model.named_parameters())
+    no_decay = ['bias', 'gamma', 'beta']
+    optimizer_grouped_parameters = [
+        {'params': [p for n, p in param_optimizer if n not in no_decay], 'weight_decay_rate': 0.01},
+        {'params': [p for n, p in param_optimizer if n in no_decay], 'weight_decay_rate': 0.0}
+    ]
+    optimizer = BERTAdam(optimizer_grouped_parameters,
+                         lr=args.learning_rate,
+                         warmup=args.warmup_proportion,
+                         t_total=num_train_steps)
+
+    writer = SummaryWriter()
+
+    if args.do_train:
+        # if args.train_feat:
+        #    train_features = joblib.load(args.train_feat)
+        # else:
+        train_features = convert_examples_to_features(
+            examples=train_examples,
+            tokenizer=tokenizer,
+            max_seq_length=args.max_seq_length,
+            doc_stride=args.doc_stride,
+            max_query_length=args.max_query_length,
+            is_training=True,
+            vocab_file=args.vocab_file)
+
+        # joblib.dump(train_features,'train_features')
+
+        logger.info("***** Running training *****")
+        logger.info("  Num orig examples = %d", len(train_examples))
+        logger.info("  Num split examples = %d", len(train_features))
+        logger.info("  Batch size = %d", args.train_batch_size)
+        logger.info("  Num steps = %d", num_train_steps)
+
+        train_dataloader = build_dataloader(train_features, batch_size=args.train_batch_size,
+                                            local_rank=args.local_rank, is_training=True)
+
+        tf_dict = {item.example_index: item for item in train_features}
+
+        if args.do_predict:
+            eval_examples = read_squad_examples(input_file=args.predict_file, is_training=False)
+            eval_features = convert_examples_to_features(
+                examples=eval_examples,
+                tokenizer=tokenizer,
+                max_seq_length=args.max_seq_length,
+                doc_stride=args.doc_stride,
+                max_query_length=args.max_query_length,
+                is_training=False,
+                vocab_file=args.vocab_file)
+
+            eval_dataloader = build_dataloader(eval_features, batch_size=args.predict_batch_size,
+                                               local_rank=args.local_rank, is_training=False)
+
+        q_emb, p_emb, sp_emb = build_embeddings(args, train_features)
+
+        model.train()
+        global_step = 0
+        context_len = args.max_seq_length - 200 - 3
+        for t_epoch in trange(int(args.num_train_epochs), desc="Epoch"):
+            for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
+                global_step += 1
+
+                if n_gpu == 1:
+                    batch = tuple(t.to(device) for t in batch)  # multi-gpu does scattering it-self
+                input_ids, input_mask, segment_ids, start_positions, end_positions, example_ids = batch
+
+                #
+                # Terrible, please dont look at me
+                #
+                cls = torch.zeros(input_ids.size(0), 1, 1024)
+                sep = torch.zeros(input_ids.size(0), 1, 1024)
+                example_ids = example_ids.cpu().numpy()
+                qs = np.array([np.pad(q_emb[tf_dict[example_id].unique_id], ((0, 200), (0, 0)), 'constant',
+                                      constant_values=(0))[:200, :] for example_id in example_ids])
+                qs = torch.Tensor(qs)
+                if not args.supp_only:
+                    contexts = []
+                    for example_id in example_ids:
+                        paragraphs = []
+                        for p in tf_dict[example_id].paragraphs:
+                            paragraphs.append(p_emb[p])
+                        paragraphs = np.concatenate(paragraphs)
+                        contexts.append(np.pad(paragraphs, ((0, context_len), (0, 0)), 'constant', constant_values=(0))[
+                                        :context_len, :])
+                    contexts = np.array(contexts)
+                    contexts = torch.Tensor(contexts)
+                else:
+                    contexts = np.array([np.pad(sp_emb[tf_dict[example_id].unique_id], ((0, context_len), (0, 0)),
+                                                'constant', constant_values=(0))[:context_len, :] for example_id in
+                                         example_ids])
+                    contexts = torch.Tensor(contexts)
+                embedding = torch.cat([cls, qs, sep, contexts, sep], dim=1).cuda()
+
+                loss, _, _ = model(input_ids, segment_ids, input_mask, embedding, start_positions, end_positions)
+                if n_gpu > 1:
+                    loss = loss.mean()  # mean() to average on multi-gpu.
+                if args.fp16 and args.loss_scale != 1.0:
+                    # rescale loss for fp16 training
+                    # see https://docs.nvidia.com/deeplearning/sdk/mixed-precision-training/index.html
+                    loss = loss * args.loss_scale
+                if args.gradient_accumulation_steps > 1:
+                    loss = loss / args.gradient_accumulation_steps
+                writer.add_scalar('data/train/loss', loss.item(), global_step)
+                loss.backward()
+                if (step + 1) % args.gradient_accumulation_steps == 0:
+                    if args.fp16 or args.optimize_on_cpu:
+                        if args.fp16 and args.loss_scale != 1.0:
+                            # scale down gradients for fp16 training
+                            for param in model.parameters():
+                                param.grad.data = param.grad.data / args.loss_scale
+                        is_nan = set_optimizer_params_grad(param_optimizer, model.named_parameters(), test_nan=True)
+                        if is_nan:
+                            logger.info("FP16 TRAINING: Nan in gradients, reducing loss scaling")
+                            args.loss_scale = args.loss_scale / 2
+                            model.zero_grad()
+                            continue
+                        optimizer.step()
+                        copy_optimizer_params_to_model(model.named_parameters(), param_optimizer)
+                    else:
+                        optimizer.step()
+                    model.zero_grad()
+
+                if global_step % args.save_checkpoints_steps == 0:
+                    torch.save(model.state_dict(), os.path.join(args.output_dir, 'model' + str(global_step) + '.pt'))
+
+                    if args.do_predict:
+                        total_eloss = predict(args=args,
+                                              model=model,
+                                              eval_examples=eval_examples,
+                                              eval_features=eval_features,
+                                              eval_dataloader=eval_dataloader,
+                                              n_gpu=n_gpu,
+                                              q_emb=q_emb,
+                                              p_emb=p_emb,
+                                              sp_emb=sp_emb,
+                                              epoch=t_epoch,
+                                              global_step=global_step,
+                                              writer=writer)
+
+                        model.train()
+
+
+def parse_args():
     parser = argparse.ArgumentParser()
 
     ## Required parameters
@@ -801,41 +1013,103 @@ def main():
                         type=float, default=128,
                         help='Loss scaling, positive power of 2 values can improve fp16 convergence.')
     parser.add_argument('--hp_para_emb',
-                            type=str, default='../bert-as-service/paragraphs',
-                            help='')
+                        type=str, default='../bert-as-service/paragraphs',
+                        help='')
     parser.add_argument('--hp_q_emb',
-                            type=str, default='../bert-as-service/questions',
-                            help='')
+                        type=str, default='../bert-as-service/questions',
+                        help='')
     parser.add_argument('--hp_sp_emb',
-                            type=str, default='../bert-as-service/supporting_facts',
-                            help='')
+                        type=str, default='../bert-as-service/supporting_facts',
+                        help='')
     parser.add_argument('--hp_paraid_dict',
-                            type=str, default='../bert-as-service/ptoid.json',
-                            help='')
+                        type=str, default='../bert-as-service/ptoid.json',
+                        help='')
     parser.add_argument('--hp_qid_dict',
-                            type=str, default='../bert-as-service/qidtouid.json',
-                            help='')
+                        type=str, default='../bert-as-service/qidtouid.json',
+                        help='')
     parser.add_argument('--hp_sp_dict',
-                            type=str, default='../bert-as-service/supporting_factstoid.json',
-                            help='')
+                        type=str, default='../bert-as-service/supporting_factstoid.json',
+                        help='')
     parser.add_argument('--train_feat',
-                                type=str, default='',
-                                help='')
+                        type=str, default='',
+                        help='')
     parser.add_argument('--eval_feat',
-                                type=str, default='',
-                                help='')
+                        type=str, default='',
+                        help='')
     parser.add_argument("--debug",
-                            default=False,
-                            action='store_true',
-                            help="Whether not to use very small data")
+                        default=False,
+                        action='store_true',
+                        help="Whether not to use very small data")
     parser.add_argument("--supp_only",
-                            default=False,
-                            action='store_true',
-                            help="Whether not to use sp only setting of hotpot")
+                        default=False,
+                        action='store_true',
+                        help="Whether not to use sp only setting of hotpot")
+
+    return parser.parse_args()
 
 
-    args = parser.parse_args()
+def build_embeddings(args, train_features):
+    qiddict = json.load(open(args.hp_qid_dict))
+    piddict = json.load(open(args.hp_paraid_dict))
+    spiddict = json.load(open(args.hp_sp_dict))
 
+    if args.debug:
+        piddict_filtered = {}
+        qiddict_filtered = {}
+
+        for tf in train_features:
+            for p in tf.paragraphs:
+                piddict_filtered[p] = piddict[p]
+            qiddict_filtered[tf.unique_id] = qiddict[tf.unique_id]
+        piddict = piddict_filtered
+        qiddict = qiddict_filtered
+
+    q_emb = {}
+    for k, v in tqdm(qiddict.items()):
+        q_emb[k] = np.load(os.path.join(args.hp_q_emb, v + '.npy'))
+
+    p_emb = {}
+    sp_emb = {}
+
+    if not args.supp_only:
+        for k, v in tqdm(piddict.items()):
+            p_emb[k] = np.pad(np.load(os.path.join(args.hp_para_emb, v + '.npy')), ((1, 0), (0, 0)), 'constant',
+                              constant_values=(0))
+    else:
+        for k, v in tqdm(spiddict.items()):
+            sp_emb[k] = np.load(os.path.join(args.hp_sp_emb, v + '.npy'))
+
+    return q_emb, p_emb, sp_emb
+
+
+def build_dataloader(features, batch_size, local_rank, is_training):
+    all_input_ids = torch.tensor([f.input_ids for f in features], dtype=torch.long)
+    all_example_ids = torch.tensor([f.example_index for f in features], dtype=torch.int)
+    all_input_mask = torch.tensor([f.input_mask for f in features], dtype=torch.long)
+    all_segment_ids = torch.tensor([f.segment_ids for f in features], dtype=torch.long)
+    all_start_positions = torch.tensor([f.start_position for f in features], dtype=torch.long)
+    all_end_positions = torch.tensor([f.end_position for f in features], dtype=torch.long)
+
+    if is_training:
+        data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids,
+                             all_start_positions, all_end_positions, all_example_ids)
+    else:
+        all_eval_example_index = torch.arange(all_input_ids.size(0), dtype=torch.long)
+        data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids,
+                             all_eval_example_index, all_example_ids, all_start_positions,
+                             all_end_positions)
+
+    if local_rank == -1 and is_training:
+        sampler = RandomSampler(data)
+    elif local_rank == -1 and not is_training:
+        sampler = SequentialSampler(data)
+    else:
+        sampler = DistributedSampler(data)
+
+    return DataLoader(data, sampler=sampler, batch_size=batch_size)
+
+
+def prepare_device(args):
     if args.local_rank == -1 or args.no_cuda:
         device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
         n_gpu = torch.cuda.device_count()
@@ -846,61 +1120,29 @@ def main():
         torch.distributed.init_process_group(backend='nccl')
         if args.fp16:
             logger.info("16-bits training currently not supported in distributed training")
-            args.fp16 = False # (see https://github.com/pytorch/pytorch/pull/13496)
+            args.fp16 = False  # (see https://github.com/pytorch/pytorch/pull/13496)
     logger.info("device: {} n_gpu: {}, distributed training: {}, 16-bits trainiing: {}".format(
         device, n_gpu, bool(args.local_rank != -1), args.fp16))
 
-    if args.gradient_accumulation_steps < 1:
-        raise ValueError("Invalid gradient_accumulation_steps parameter: {}, should be >= 1".format(
-                            args.gradient_accumulation_steps))
+    return device, n_gpu
 
-    args.train_batch_size = int(args.train_batch_size / args.gradient_accumulation_steps)
 
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    if n_gpu > 0:
-        torch.cuda.manual_seed_all(args.seed)
-
-    if not args.do_train and not args.do_predict:
-        raise ValueError("At least one of `do_train` or `do_predict` must be True.")
-
-    if args.do_train:
-        if not args.train_file:
-            raise ValueError(
-                "If `do_train` is True, then `train_file` must be specified.")
-    if args.do_predict:
-        if not args.predict_file:
-            raise ValueError(
-                "If `do_predict` is True, then `predict_file` must be specified.")
-
-    bert_config = BertConfig.from_json_file(args.bert_config_file)
-
-    if args.max_seq_length > bert_config.max_position_embeddings:
-        raise ValueError(
-            "Cannot use sequence length %d because the BERT model "
-            "was only trained up to sequence length %d" %
-            (args.max_seq_length, bert_config.max_position_embeddings))
-
-    if os.path.exists(args.output_dir) and os.listdir(args.output_dir):
-        raise ValueError("Output directory () already exists and is not empty.")
-    os.makedirs(args.output_dir, exist_ok=True)
-
-    tokenizer = tokenization.FullTokenizer(
-        vocab_file=args.vocab_file, do_lower_case=args.do_lower_case)
-
-    train_examples = None
-    num_train_steps = None
-    if args.do_train:
-        train_examples = read_squad_examples(
-            input_file=args.train_file, is_training=True)
-        num_train_steps = int(
-            len(train_examples) / args.train_batch_size / args.gradient_accumulation_steps * args.num_train_epochs)
-
-    # Prepare model
+def prepare_model(args, bert_config, device, n_gpu):
     model = BertForQuestionAnswering(bert_config)
     if args.init_checkpoint is not None:
-        model.bert.load_state_dict(torch.load(args.init_checkpoint, map_location='cpu'))
+
+        # original saved file with DataParallel
+        state_dict = torch.load(args.init_checkpoint, map_location='cpu')
+        # create new OrderedDict that does not contain `module.`
+        from collections import OrderedDict
+        new_state_dict = OrderedDict()
+        for k, v in state_dict.items():
+            name = k[5:]  # remove `module.`
+            new_state_dict[name] = v
+        # load params
+        model.load_state_dict(state_dict)
+
+        # model.bert.load_state_dict(torch.load(args.init_checkpoint, map_location='cpu'))
     if args.fp16:
         model.half()
     model.to(device)
@@ -911,265 +1153,110 @@ def main():
     elif n_gpu > 1:
         model = torch.nn.DataParallel(model)
 
-    # Prepare optimizer
-    if args.fp16:
-        param_optimizer = [(n, param.clone().detach().to('cpu').float().requires_grad_()) \
-                            for n, param in model.named_parameters()]
-    elif args.optimize_on_cpu:
-        param_optimizer = [(n, param.clone().detach().to('cpu').requires_grad_()) \
-                            for n, param in model.named_parameters()]
+    return model
+
+
+def predict(args, model, eval_examples, eval_features, n_gpu, q_emb=None, p_emb=None, sp_emb=None, eval_dataloader=None,
+            epoch=0, global_step=0, writer=None):
+    logger.info("***** Running predictions *****")
+    logger.info("  Num orig examples = %d", len(eval_examples))
+    logger.info("  Num split examples = %d", len(eval_features))
+    logger.info("  Batch size = %d", args.predict_batch_size)
+
+    if args.local_rank == -1 or args.no_cuda:
+        device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
     else:
-        param_optimizer = list(model.named_parameters())
-    no_decay = ['bias', 'gamma', 'beta']
-    optimizer_grouped_parameters = [
-        {'params': [p for n, p in param_optimizer if n not in no_decay], 'weight_decay_rate': 0.01},
-        {'params': [p for n, p in param_optimizer if n in no_decay], 'weight_decay_rate': 0.0}
-        ]
-    optimizer = BERTAdam(optimizer_grouped_parameters,
-                         lr=args.learning_rate,
-                         warmup=args.warmup_proportion,
-                         t_total=num_train_steps)
+        device = torch.device("cuda", args.local_rank)
 
-    global_step = 0
-    writer = SummaryWriter()
-    
-    if args.do_train:
-        #if args.train_feat:
-        #    train_features = joblib.load(args.train_feat)
-        #else:
-        train_features = convert_examples_to_features(
-            examples=train_examples,
-            tokenizer=tokenizer,
-            max_seq_length=args.max_seq_length,
-            doc_stride=args.doc_stride,
-            max_query_length=args.max_query_length,
-            is_training=True,
-            vocab_file=args.vocab_file)
-            #joblib.dump(train_features,'train_features')
-        logger.info("***** Running training *****")
-        logger.info("  Num orig examples = %d", len(train_examples))
-        logger.info("  Num split examples = %d", len(train_features))
-        logger.info("  Batch size = %d", args.train_batch_size)
-        logger.info("  Num steps = %d", num_train_steps)
+    context_len = args.max_seq_length - 200 - 3
 
-        all_input_ids = torch.tensor([f.input_ids for f in train_features], dtype=torch.long)
-        all_example_ids = torch.tensor([f.example_index for f in train_features], dtype=torch.int)
-        all_input_mask = torch.tensor([f.input_mask for f in train_features], dtype=torch.long)
-        all_segment_ids = torch.tensor([f.segment_ids for f in train_features], dtype=torch.long)
-        all_start_positions = torch.tensor([f.start_position for f in train_features], dtype=torch.long)
-        all_end_positions = torch.tensor([f.end_position for f in train_features], dtype=torch.long)
+    model.eval()
+    all_results = []
+    total_eloss = 0.
 
-        train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids,
-                                   all_start_positions, all_end_positions, all_example_ids)
-        if args.local_rank == -1:
-            train_sampler = RandomSampler(train_data)
-        else:
-            train_sampler = DistributedSampler(train_data)
-        train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=args.train_batch_size)
+    logger.info("Start evaluating")
 
-        if args.do_predict:
-            eval_examples = read_squad_examples(input_file=args.predict_file, is_training=False)
-            eval_features = convert_examples_to_features(
-                examples=eval_examples,
-                tokenizer=tokenizer,
-                max_seq_length=args.max_seq_length,
-                doc_stride=args.doc_stride,
-                max_query_length=args.max_query_length,
-                is_training=False,
-                vocab_file=args.vocab_file)
+    if not eval_dataloader:
+        eval_dataloader = build_dataloader(eval_features, batch_size=args.predict_batch_size,
+                                           local_rank=args.local_rank, is_training=False)
+    ef_dict = {item.example_index: item for item in eval_features}
 
-            all_eval_input_ids = torch.tensor([f.input_ids for f in eval_features], dtype=torch.long)
-            all_eval_input_mask = torch.tensor([f.input_mask for f in eval_features], dtype=torch.long)
-            all_eval_segment_ids = torch.tensor([f.segment_ids for f in eval_features], dtype=torch.long)
-            all_eval_example_index = torch.arange(all_eval_input_ids.size(0), dtype=torch.long)
-            all_eval_example_ids = torch.tensor([f.example_index for f in eval_features], dtype=torch.int)
-            all_eval_start_positions = torch.tensor([f.start_position for f in eval_features], dtype=torch.long)
-            all_eval_end_positions = torch.tensor([f.end_position for f in eval_features], dtype=torch.long)
+    if not q_emb:
+        q_emb, p_emb, sp_emb = build_embeddings(args, eval_features)
 
-            eval_data = TensorDataset(all_eval_input_ids, all_eval_input_mask, all_eval_segment_ids, all_eval_example_index, all_eval_example_ids, all_eval_start_positions, all_eval_end_positions )
-        if args.local_rank == -1:
-            eval_sampler = SequentialSampler(eval_data)
-        else:
-            eval_sampler = DistributedSampler(eval_data)
-        eval_dataloader = DataLoader(eval_data, sampler=eval_sampler, batch_size=args.predict_batch_size)
+    eval_step = 0
+    for batch in tqdm(eval_dataloader, desc="Evaluating"):
+        eval_step += 1
+        if n_gpu == 1:
+            batch = tuple(t.to(device) for t in batch)  # multi-gpu does scattering it-self
 
-        qiddict = json.load(open(args.hp_qid_dict))
-        piddict = json.load(open(args.hp_paraid_dict))
-        spiddict = json.load(open(args.hp_sp_dict))
+        input_ids, input_mask, segment_ids, example_indices, example_ids, start_positions, end_positions = batch
 
-        if args.debug:
-            piddict_filtered={}
-            qiddict_filtered={}
-
-            for tf in train_features:
-                for p in tf.paragraphs:
-                    piddict_filtered[p] = piddict[p]
-                qiddict_filtered[tf.unique_id] = qiddict[tf.unique_id]
-            piddict = piddict_filtered
-            qiddict = qiddict_filtered
-
-        q_emb = {}
-        for k, v in tqdm(qiddict.items()):
-            q_emb[k] = np.load(os.path.join(args.hp_q_emb, v + '.npy'))
-
-
+        #
+        # Still terrible
+        #
+        cls = torch.zeros(input_ids.size(0), 1, 1024)
+        sep = torch.zeros(input_ids.size(0), 1, 1024)
+        example_ids = example_ids.cpu().numpy()
+        qs = np.array([np.pad(q_emb[ef_dict[example_id].unique_id], ((0, 200), (0, 0)), 'constant',
+                              constant_values=(0))[:200, :] for example_id in example_ids])
+        qs = torch.Tensor(qs)
         if not args.supp_only:
-            p_emb = {}
-            cnt=0
-            for k, v in tqdm(piddict.items()):
-                p_emb[k] = np.pad(np.load(os.path.join(args.hp_para_emb, v + '.npy')), ((1, 0),(0,0)), 'constant', constant_values=(0) )
-                cnt += 1
+            contexts = []
+            for example_id in example_ids:
+                paragraphs = []
+                for p in ef_dict[example_id].paragraphs:
+                    paragraphs.append(p_emb[p])
+                paragraphs = np.concatenate(paragraphs)
+                contexts.append(
+                    np.pad(paragraphs, ((0, context_len), (0, 0)), 'constant', constant_values=(0))[
+                    :context_len, :])
+            contexts = np.array(contexts)
+            contexts = torch.Tensor(contexts)
         else:
-            sp_emb = {}
-            for k, v in tqdm(spiddict.items()):
-                sp_emb[k] = np.load(os.path.join(args.hp_sp_emb, v + '.npy'))
+            contexts = np.array([np.pad(sp_emb[ef_dict[example_id].unique_id],
+                                        ((0, context_len), (0, 0)), 'constant', constant_values=(0))[
+                                 :context_len, :] for example_id in example_ids])
+            contexts = torch.Tensor(contexts)
+        embedding = torch.cat([cls, qs, sep, contexts, sep], dim=1).cuda()
 
-        tf_dict = { item.example_index:item for item in train_features }
-        ef_dict = { item.example_index:item for item in eval_features }
+        with torch.no_grad():
+            dev_loss, batch_start_logits, batch_end_logits = model(input_ids, segment_ids, input_mask,
+                                                                   embedding, start_positions,
+                                                                   end_positions)
+            if n_gpu > 1:
+                dev_loss = dev_loss.mean()  # mean() to average on multi-gpu.
+            if args.fp16 and args.loss_scale != 1.0:
+                # rescale loss for fp16 training
+                # see https://docs.nvidia.com/deeplearning/sdk/mixed-precision-training/index.html
+                dev_loss = dev_loss * args.loss_scale
+            if args.gradient_accumulation_steps > 1:
+                dev_loss = dev_loss / args.gradient_accumulation_steps
 
-        model.train()
-        global_step=0
-        context_len = args.max_seq_length - 200 - 3
-        for t_epoch in trange(int(args.num_train_epochs), desc="Epoch"):
-            for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
-                global_step += 1
+            total_eloss += dev_loss.item()
 
-                if n_gpu == 1:
-                    batch = tuple(t.to(device) for t in batch) # multi-gpu does scattering it-self
-                input_ids, input_mask, segment_ids, start_positions, end_positions, example_ids = batch
+        for i, example_index in enumerate(example_indices):
+            start_logits = batch_start_logits[i].detach().cpu().tolist()
+            end_logits = batch_end_logits[i].detach().cpu().tolist()
+            eval_feature = eval_features[example_index.item()]
+            unique_id = eval_feature.unique_id
+            all_results.append(RawResult(unique_id=unique_id,
+                                         start_logits=start_logits,
+                                         end_logits=end_logits))
 
+            if writer:
+                writer.add_scalar('data/train/dev_loss', total_eloss / eval_step, global_step)
 
-                #
-                # Terrible, please dont look at me
-                #
-                cls = torch.zeros(input_ids.size(0),1, 1024)
-                sep = torch.zeros(input_ids.size(0),1, 1024)
-                example_ids = example_ids.cpu().numpy()
-                qs = np.array([np.pad(q_emb[tf_dict[example_id].unique_id], ((0, 200), (0,0)), 'constant', constant_values=(0) )[:200,:] for example_id in example_ids])
-                qs = torch.Tensor(qs)
-                if not args.supp_only:
-                    contexts = []
-                    for example_id in example_ids:
-                        paragraphs = []
-                        for p in tf_dict[example_id].paragraphs:
-                            paragraphs.append(p_emb[p])
-                        paragraphs = np.concatenate(paragraphs)
-                        contexts.append(np.pad(paragraphs, ((0,context_len),(0,0)), 'constant', constant_values=(0) )[:context_len,:])
-                    contexts = np.array(contexts)
-                    contexts = torch.Tensor(contexts)
-                else:
-                    contexts = np.array([np.pad(sp_emb[tf_dict[example_id].unique_id], ((0, context_len), (0,0)), 'constant', constant_values=(0) )[:context_len,:] for example_id in example_ids])
-                    contexts = torch.Tensor(contexts)
-                embedding = torch.cat([cls,qs,sep,contexts, sep], dim=1).cuda()
+    output_prediction_file = os.path.join(args.output_dir,
+                                          "predictions_{}_{}.json".format(epoch, global_step))
+    output_nbest_file = os.path.join(args.output_dir,
+                                     "nbest_predictions_{}_{}.json".format(epoch, global_step))
+    write_predictions(eval_examples, eval_features, all_results,
+                      args.n_best_size, args.max_answer_length,
+                      args.do_lower_case, output_prediction_file,
+                      output_nbest_file, args.verbose_logging)
 
-
-                loss, _, _ = model(input_ids, segment_ids, input_mask, embedding, start_positions, end_positions)
-                if n_gpu > 1:
-                    loss = loss.mean() # mean() to average on multi-gpu.
-                if args.fp16 and args.loss_scale != 1.0:
-                    # rescale loss for fp16 training
-                    # see https://docs.nvidia.com/deeplearning/sdk/mixed-precision-training/index.html
-                    loss = loss * args.loss_scale
-                if args.gradient_accumulation_steps > 1:
-                    loss = loss / args.gradient_accumulation_steps
-                writer.add_scalar('data/train/loss', loss.item(), global_step)
-                loss.backward()
-                if (step + 1) % args.gradient_accumulation_steps == 0:
-                    if args.fp16 or args.optimize_on_cpu:
-                        if args.fp16 and args.loss_scale != 1.0:
-                            # scale down gradients for fp16 training
-                            for param in model.parameters():
-                                param.grad.data = param.grad.data / args.loss_scale
-                        is_nan = set_optimizer_params_grad(param_optimizer, model.named_parameters(), test_nan=True)
-                        if is_nan:
-                            logger.info("FP16 TRAINING: Nan in gradients, reducing loss scaling")
-                            args.loss_scale = args.loss_scale / 2
-                            model.zero_grad()
-                            continue
-                        optimizer.step()
-                        copy_optimizer_params_to_model(model.named_parameters(), param_optimizer)
-                    else:
-                        optimizer.step()
-                    model.zero_grad()
-
-
-
-                if args.do_predict and global_step % args.save_checkpoints_steps == 0:
-                    logger.info("***** Running predictions *****")
-                    logger.info("  Num orig examples = %d", len(eval_examples))
-                    logger.info("  Num split examples = %d", len(eval_features))
-                    logger.info("  Batch size = %d", args.predict_batch_size)
-
-                    model.eval()
-                    all_results = []
-                    total_eloss=0.
-                    logger.info("Start evaluating")
-                    eval_step=0.
-                    for batch in tqdm(eval_dataloader, desc="Evaluating"):
-                        eval_step += 1
-                        if n_gpu == 1:
-                            batch = tuple(t.to(device) for t in batch) # multi-gpu does scattering it-self
-
-                        input_ids, input_mask, segment_ids, example_indices, example_ids, start_positions, end_positions = batch
-
-
-                        #
-                        # Still terrible
-                        #
-                        cls = torch.zeros(input_ids.size(0),1, 1024)
-                        sep = torch.zeros(input_ids.size(0),1, 1024)
-                        example_ids = example_ids.cpu().numpy()
-                        qs = np.array([np.pad(q_emb[ef_dict[example_id].unique_id], ((0, 200), (0,0)), 'constant', constant_values=(0) )[:200,:] for example_id in example_ids])
-                        qs = torch.Tensor(qs)
-                        if not args.supp_only:
-                            contexts = []
-                            for example_id in example_ids:
-                                paragraphs = []
-                                for p in ef_dict[example_id].paragraphs:
-                                    paragraphs.append(p_emb[p])
-                                paragraphs = np.concatenate(paragraphs)
-                                contexts.append(np.pad(paragraphs, ((0,context_len),(0,0)), 'constant', constant_values=(0) )[:context_len,:])
-                            contexts = np.array(contexts)
-                            contexts = torch.Tensor(contexts)
-                        else:
-                            contexts = np.array([np.pad(sp_emb[ef_dict[example_id].unique_id], ((0, context_len), (0,0)), 'constant', constant_values=(0) )[:context_len,:] for example_id in example_ids])
-                            contexts = torch.Tensor(contexts)
-                        embedding = torch.cat([cls,qs,sep,contexts, sep], dim=1).cuda()
-
-
-                        with torch.no_grad():
-                            dev_loss, batch_start_logits, batch_end_logits = model(input_ids, segment_ids, input_mask, embedding, start_positions, end_positions)
-                            if n_gpu > 1:
-                                dev_loss = dev_loss.mean() # mean() to average on multi-gpu.
-                            if args.fp16 and args.loss_scale != 1.0:
-                                # rescale loss for fp16 training
-                                # see https://docs.nvidia.com/deeplearning/sdk/mixed-precision-training/index.html
-                                dev_loss = dev_loss * args.loss_scale
-                            if args.gradient_accumulation_steps > 1:
-                                dev_loss = dev_loss / args.gradient_accumulation_steps
-
-                            total_eloss *= dev_loss
-
-                        for i, example_index in enumerate(example_indices):
-                            start_logits = batch_start_logits[i].detach().cpu().tolist()
-                            end_logits = batch_end_logits[i].detach().cpu().tolist()
-                            eval_feature = eval_features[example_index.item()]
-                            unique_id = eval_feature.unique_id
-                            all_results.append(RawResult(unique_id=unique_id,
-                                                         start_logits=start_logits,
-                                                         end_logits=end_logits))
-                    output_prediction_file = os.path.join(args.output_dir, "predictions_{}_{}.json".format(t_epoch, global_step))
-                    output_nbest_file = os.path.join(args.output_dir, "nbest_predictions_{}_{}.json".format(t_epoch, global_step))
-                    write_predictions(eval_examples, eval_features, all_results,
-                                      args.n_best_size, args.max_answer_length,
-                                      args.do_lower_case, output_prediction_file,
-                                      output_nbest_file, args.verbose_logging)
-                    torch.save(model.state_dict(), os.path.join(args.output_dir, 'model' + str(global_step) + '.pt'))
-                    writer.add_scalar('data/train/dev_loss', total_eloss / eval_step, global_step)
-                    model.train()
-
-
-
+    return total_eloss
 
 
 if __name__ == "__main__":
