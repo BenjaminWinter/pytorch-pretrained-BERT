@@ -40,8 +40,10 @@ import pickle
 import tokenization
 from modeling_withemb import BertConfig, BertForQuestionAnswering
 from optimization import BERTAdam
+import multiprocessing as mp
 
-logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s', 
+torch.set_num_threads(mp.cpu_count())
+logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt = '%m/%d/%Y %H:%M:%S',
                     level = logging.INFO)
 logger = logging.getLogger(__name__)
@@ -336,13 +338,13 @@ def convert_example_to_features(example, tokenizer, max_seq_length,
                 segment_ids=segment_ids,
                 start_position=start_position,
                 end_position=end_position)
-                
+
 def convert_examples_to_features(examples, tokenizer, max_seq_length,
-                                 doc_stride, max_query_length, is_training):
+                                 doc_stride, max_query_length, is_training,vocab_file):
     """Loads a data file into a list of `InputBatch`s."""
-    
-    features = Parallel(n_jobs=torch.get_num_threads(), verbose=10)(delayed(convert_example_to_features)(example, -1, max_seq_length, doc_stride, max_query_length, is_training, example_index) for example_index, example in enumerate(examples))
-        
+
+    features = Parallel(n_jobs=mp.cpu_count(), verbose=10)(delayed(convert_example_to_features)(example, -1, max_seq_length, doc_stride, max_query_length, is_training, example_index,vocab_file) for example_index, example in enumerate(examples))
+
     return features
 
 
@@ -804,11 +806,17 @@ def main():
     parser.add_argument('--hp_q_emb',
                             type=str, default='../bert-as-service/questions',
                             help='')
+    parser.add_argument('--hp_sp_emb',
+                            type=str, default='../bert-as-service/supporting_facts',
+                            help='')
     parser.add_argument('--hp_paraid_dict',
                             type=str, default='../bert-as-service/ptoid.json',
                             help='')
     parser.add_argument('--hp_qid_dict',
                             type=str, default='../bert-as-service/qidtouid.json',
+                            help='')
+    parser.add_argument('--hp_sp_dict',
+                            type=str, default='../bert-as-service/supporting_factstoid.json',
                             help='')
     parser.add_argument('--train_feat',
                                 type=str, default='',
@@ -820,8 +828,12 @@ def main():
                             default=False,
                             action='store_true',
                             help="Whether not to use very small data")
+    parser.add_argument("--supp_only",
+                            default=False,
+                            action='store_true',
+                            help="Whether not to use sp only setting of hotpot")
 
-    
+
     args = parser.parse_args()
 
     if args.local_rank == -1 or args.no_cuda:
@@ -983,11 +995,12 @@ def main():
 
         qiddict = json.load(open(args.hp_qid_dict))
         piddict = json.load(open(args.hp_paraid_dict))
+        spiddict = json.load(open(args.hp_sp_dict))
 
         if args.debug:
             piddict_filtered={}
             qiddict_filtered={}
-            
+
             for tf in train_features:
                 for p in tf.paragraphs:
                     piddict_filtered[p] = piddict[p]
@@ -999,12 +1012,18 @@ def main():
         for k, v in tqdm(qiddict.items()):
             q_emb[k] = np.load(os.path.join(args.hp_q_emb, v + '.npy'))
 
-        p_emb = {}
-        cnt=0
-        for k, v in tqdm(piddict.items()):
-            p_emb[k] = np.pad(np.load(os.path.join(args.hp_para_emb, v + '.npy')), ((1, 0),(0,0)), 'constant', constant_values=(0) )
-            cnt += 1
-        
+
+        if not args.supp_only:
+            p_emb = {}
+            cnt=0
+            for k, v in tqdm(piddict.items()):
+                p_emb[k] = np.pad(np.load(os.path.join(args.hp_para_emb, v + '.npy')), ((1, 0),(0,0)), 'constant', constant_values=(0) )
+                cnt += 1
+        else:
+            sp_emb = {}
+            for k, v in tqdm(spiddict.items()):
+                sp_emb[k] = np.load(os.path.join(args.hp_sp_emb, v + '.npy'))
+
         tf_dict = { item.example_index:item for item in train_features }
         ef_dict = { item.example_index:item for item in eval_features }
 
@@ -1028,16 +1047,19 @@ def main():
                 example_ids = example_ids.cpu().numpy()
                 qs = np.array([np.pad(q_emb[tf_dict[example_id].unique_id], ((0, 200), (0,0)), 'constant', constant_values=(0) )[:200,:] for example_id in example_ids])
                 qs = torch.Tensor(qs)
-                contexts = []
-                context_len
-                for example_id in example_ids:
-                    paragraphs = []
-                    for p in tf_dict[example_id].paragraphs:
-                        paragraphs.append(p_emb[p])
-                    paragraphs = np.concatenate(paragraphs)
-                    contexts.append(np.pad(paragraphs, ((0,context_len),(0,0)), 'constant', constant_values=(0) )[:context_len,:])
-                contexts = np.array(contexts) 
-                contexts = torch.Tensor(contexts)
+                if not args.supp_only:
+                    contexts = []
+                    for example_id in example_ids:
+                        paragraphs = []
+                        for p in tf_dict[example_id].paragraphs:
+                            paragraphs.append(p_emb[p])
+                        paragraphs = np.concatenate(paragraphs)
+                        contexts.append(np.pad(paragraphs, ((0,context_len),(0,0)), 'constant', constant_values=(0) )[:context_len,:])
+                    contexts = np.array(contexts)
+                    contexts = torch.Tensor(contexts)
+                else:
+                    contexts = np.array([np.pad(sp_emb[tf_dict[example_id].unique_id], ((0, context_len), (0,0)), 'constant', constant_values=(0) )[:context_len,:] for example_id in example_ids])
+                    contexts = torch.Tensor(contexts)
                 embedding = torch.cat([cls,qs,sep,contexts, sep], dim=1).cuda()
 
 
